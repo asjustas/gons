@@ -1,5 +1,6 @@
 /*
 https://github.com/tonnerre/golang-dns/blob/master/ex/as112/as112.go
+https://github.com/ant0ine/go-json-rest
  */
 
 package main
@@ -15,23 +16,29 @@ import (
 	"github.com/asjustas/goini"
 	"os"
 	"fmt"
+	"net"
 )
 
-func MakeRR(s string) dns.RR { 
-	r, _ := dns.NewRR(s); return r
+func serve(net string) {
+	err := dns.ListenAndServe(":53", net, nil)
+	if err != nil {
+		log.Fatal("Failed to set " + net + " listener %s\n", err.Error())
+	}
 }
 
 func handleZone(w dns.ResponseWriter, r *dns.Msg) {
+	fmt.Println(r.Question[0].Name)
+
 	switch r.Question[0].Qtype {
 	case dns.TypeA:
-		record := "jv.lt. IN A 127.0.0.1\n"
-		rr := MakeRR(record)
-		rrx := rr.(*dns.A)
+		record := new(dns.A)
+		record.Hdr = dns.RR_Header{Name: "jv.lt.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 3600}
+		record.A = net.ParseIP("127.0.0.1")
 
 		m := new(dns.Msg)
 		m.SetReply(r)
 		m.Authoritative = true
-		m.Answer = []dns.RR{rrx}
+		m.Answer = []dns.RR{record}
 		w.WriteMsg(m)
 
 	case dns.TypeNS:
@@ -92,25 +99,14 @@ func main() {
 
     fmt.Print(conf)
 
-	dns.HandleFunc("jv.lt.", handleZone)
+	dns.HandleFunc(".", handleZone)
 	/*dns.HandleFunc("authors.bind.", dns.HandleAuthors)
 	dns.HandleFunc("authors.server.", dns.HandleAuthors)
 	dns.HandleFunc("version.bind.", dns.HandleVersion)
 	dns.HandleFunc("version.server.", dns.HandleVersion)*/
 
-	go func() {
-		err := dns.ListenAndServe(":53", "tcp", nil)
-		if err != nil {
-			log.Fatal("Failed to set tcp listener %s\n", err.Error())
-		}
-	}()
-
-	go func() {
-		err := dns.ListenAndServe(":53", "udp", nil)
-		if err != nil {
-			log.Fatal("Failed to set udp listener %s\n", err.Error())
-		}
-	}()
+	go serve("tcp")
+	go serve("udp")
 
 	go func() {
 		m := martini.Classic()
