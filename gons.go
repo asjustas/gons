@@ -17,7 +17,35 @@ import (
 	"os"
 	"fmt"
 	"net"
+	"github.com/vmihailenco/redis/v2"
+	"encoding/json"
 )
+
+var (
+	conf *goini.Ini 
+	confErr error
+	redisConn *redis.Client
+)
+
+type DnsRecord struct {
+	Name string `json:"name"`
+	Ttl uint32 `json:"ttl"`
+	A string `json:"a"`
+	Ns string `json:"ns"`
+	Mx string `json:"mx"`
+	Txt string `json:"Txt"`
+	Preference uint16 `json:"preference"`
+}
+
+type DnsRecordsCollection struct {
+	Pool map[string]DnsRecord
+}
+
+func (mc *DnsRecordsCollection) FromJson(jsonStr string) error {
+	var data = &mc.Pool
+	b := []byte(jsonStr)
+	return json.Unmarshal(b, data)
+}
 
 func serve(net string) {
 	err := dns.ListenAndServe(":53", net, nil)
@@ -26,59 +54,91 @@ func serve(net string) {
 	}
 }
 
+func getRecord(name string, qType uint16) (string, error){
+	key := conf.Str("redis", "key") + ":" + name + ":" + fmt.Sprintf("%v",qType)
+	return redisConn.Get(key).Result()
+}
+
+func setAnswer(w dns.ResponseWriter, r *dns.Msg, data []dns.RR) {
+	m := new(dns.Msg)
+	m.SetReply(r)
+	m.Authoritative = true
+	m.Answer = data
+	w.WriteMsg(m)
+}
+
 func handleZone(w dns.ResponseWriter, r *dns.Msg) {
-	fmt.Println(r.Question[0].Name)
+	json, err := getRecord(r.Question[0].Name, r.Question[0].Qtype)
+	records := new(DnsRecordsCollection)
+
+	if err != nil {
+		ping := redisConn.Ping()
+		err := ping.Err() 
+
+		if err != nil {
+			// no connection to redis
+			m := new(dns.Msg)
+			m.Authoritative = true
+			m.SetRcode(r, dns.RcodeServerFailure)
+			w.WriteMsg(m)
+
+			return
+		}
+	} else {
+		err = records.FromJson(json)
+
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+
+	var answer []dns.RR
 
 	switch r.Question[0].Qtype {
 	case dns.TypeA:
-		record := new(dns.A)
-		record.Hdr = dns.RR_Header{Name: "jv.lt.", Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 3600}
-		record.A = net.ParseIP("127.0.0.1")
+		for _, rec := range records.Pool {
+			record := new(dns.A)
+			record.Hdr = dns.RR_Header{Name: rec.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: rec.Ttl}
+			record.A = net.ParseIP(rec.A)
 
-		m := new(dns.Msg)
-		m.SetReply(r)
-		m.Authoritative = true
-		m.Answer = []dns.RR{record}
-		w.WriteMsg(m)
+			answer = append(answer, record)
+		}
+
+		setAnswer(w, r, answer)
 
 	case dns.TypeNS:
-		record := new(dns.NS)
-		record.Hdr = dns.RR_Header{Name: "jv.lt.", Rrtype: dns.TypeNS, Class: dns.ClassINET, Ttl: 3600}
-		record.Ns = "ns.jv.lt."
+		for _, rec := range records.Pool {
+			record := new(dns.NS)
+			record.Hdr = dns.RR_Header{Name: rec.Name, Rrtype: dns.TypeNS, Class: dns.ClassINET, Ttl: rec.Ttl}
+			record.Ns = rec.Ns
 
-		m := new(dns.Msg)
-		m.SetReply(r)
-		m.Authoritative = true
-		m.Answer = []dns.RR{record}
-		w.WriteMsg(m)
+			answer = append(answer, record)
+		}
+
+		setAnswer(w, r, answer)
 
 	case dns.TypeMX:
-		record := new(dns.MX)
-		record.Hdr = dns.RR_Header{Name: "jv.lt.", Rrtype: dns.TypeMX, Class: dns.ClassINET, Ttl: 3600}
-		record.Preference = 10
-		record.Mx = "mx.jv.lt."
+		for _, rec := range records.Pool {
+			record := new(dns.MX)
+			record.Hdr = dns.RR_Header{Name: rec.Name, Rrtype: dns.TypeMX, Class: dns.ClassINET, Ttl: rec.Ttl}
+			record.Preference = rec.Preference
+			record.Mx = rec.Mx
 
-		record2 := new(dns.MX)
-		record2.Hdr = dns.RR_Header{Name: "jv.lt.", Rrtype: dns.TypeMX, Class: dns.ClassINET, Ttl: 3600}
-		record2.Preference = 20
-		record2.Mx = "mx2.jv.lt."
-
-		m := new(dns.Msg)
-		m.SetReply(r)
-		m.Authoritative = true
-		m.Answer = []dns.RR{record, record2}
-		w.WriteMsg(m)
+			answer = append(answer, record)
+		}
+		
+		setAnswer(w, r, answer)
 
 	case dns.TypeTXT:
-		record := new(dns.TXT)
-		record.Hdr = dns.RR_Header{Name: "jv.lt.", Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: 3600}
-		record.Txt = []string{"google-site-verification=rXOxyZounnZasA8Z7oaD3c14JdjS9aKSWvsR1EbUSIQ"}
+		for _, rec := range records.Pool {
+			record := new(dns.TXT)
+			record.Hdr = dns.RR_Header{Name: rec.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: rec.Ttl}
+			record.Txt = []string{rec.Txt}
 
-		m := new(dns.Msg)
-		m.SetReply(r)
-		m.Authoritative = true
-		m.Answer = []dns.RR{record}
-		w.WriteMsg(m)
+			answer = append(answer, record)
+		}
+
+		setAnswer(w, r, answer)
 
 	default:
 		m := new(dns.Msg)
@@ -91,13 +151,20 @@ func handleZone(w dns.ResponseWriter, r *dns.Msg) {
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU() * 4)
 
-	conf, err := goini.Load("config.ini")
-
-	if err != nil {
-        panic(err)
+	conf, confErr = goini.Load("config.ini")
+	if confErr != nil {
+        panic(confErr)
     }
 
     fmt.Print(conf)
+
+    redisConn = redis.NewTCPClient(&redis.Options{
+		Addr:     conf.Str("redis", "server"),
+		Password: "",
+		DB:       0,
+	})
+
+	defer redisConn.Close()
 
 	dns.HandleFunc(".", handleZone)
 	/*dns.HandleFunc("authors.bind.", dns.HandleAuthors)
