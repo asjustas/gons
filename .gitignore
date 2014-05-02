@@ -1,4 +1,5 @@
 *.exe
+*.log
 
 *.sublime-workspace
 *.sublime-project
