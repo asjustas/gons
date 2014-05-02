@@ -5,10 +5,8 @@ https://github.com/ant0ine/go-json-rest
 package main
 
 import (
-	"github.com/codegangsta/martini"
 	"runtime"
-	"log"
-	"net/http"
+	log "github.com/cihub/seelog"
 	"github.com/miekg/dns"
 	"os/signal"
 	"syscall"
@@ -50,7 +48,8 @@ func (mc *DnsRecordsCollection) FromJson(jsonStr string) error {
 func serve(net string) {
 	err := dns.ListenAndServe(":53", net, nil)
 	if err != nil {
-		log.Fatal("Failed to set " + net + " listener %s\n", err.Error())
+		log.Critical(fmt.Sprintf("Failed to set " + net + " listener %s\n", err.Error()))
+		os.Exit(1)
 	}
 }
 
@@ -84,6 +83,8 @@ func handleZone(w dns.ResponseWriter, r *dns.Msg) {
 			m.Authoritative = true
 			m.SetRcode(r, dns.RcodeServerFailure)
 			w.WriteMsg(m)
+
+			log.Error(err)
 
 			return
 		}
@@ -163,7 +164,23 @@ func main() {
 	if confErr != nil {
         panic(confErr)
     }
-    
+
+	seelog := `
+    <seelog>
+        <outputs formatid="main">
+            <console />
+            <file path="` + conf.Str("core", "log") + `"/>
+        </outputs>
+        <formats>
+            <format id="main" format="[%LEVEL] %Date %Time %Msg%n"/>
+        </formats>
+    </seelog>`
+
+	logger, _ := log.LoggerFromConfigAsBytes([]byte(seelog))
+	log.ReplaceLogger(logger)
+
+	log.Info("Server started")
+
     redisConn = redis.NewTCPClient(&redis.Options{
 		Addr:     conf.Str("redis", "server"),
 		Password: "",
@@ -181,17 +198,13 @@ func main() {
 	go serve("tcp")
 	go serve("udp")
 
-	go func() {
-		m := martini.Classic()
-		log.Fatal(http.ListenAndServe(":8080", m))	
-	}()
-
 	sig := make(chan os.Signal)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	for {
 		select {
 		case s := <-sig:
-			log.Fatalf("Signal (%d) received, stopping\n", s)
+			log.Critical(fmt.Sprintf("Signal (%d) received, stopping\n", s))
+			os.Exit(1)
 		}
 	}
 }
