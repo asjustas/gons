@@ -1,5 +1,4 @@
 /*
-https://github.com/tonnerre/golang-dns/blob/master/ex/as112/as112.go
 https://github.com/ant0ine/go-json-rest
  */
 
@@ -155,13 +154,16 @@ func handleZone(w dns.ResponseWriter, r *dns.Msg) {
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU() * 4)
 
-	conf, confErr = goini.Load("config.ini")
+	confFile := "config.ini"
+	if len(os.Args) == 2 {
+		confFile = os.Args[0]
+	}
+
+	conf, confErr = goini.Load(confFile)
 	if confErr != nil {
         panic(confErr)
     }
-
-    fmt.Print(conf)
-
+    
     redisConn = redis.NewTCPClient(&redis.Options{
 		Addr:     conf.Str("redis", "server"),
 		Password: "",
