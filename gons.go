@@ -19,6 +19,7 @@ import (
 	"net"
 	"github.com/vmihailenco/redis/v2"
 	"encoding/json"
+	"strings"
 )
 
 var (
@@ -55,7 +56,10 @@ func serve(net string) {
 }
 
 func getRecord(name string, qType uint16) (string, error){
-	key := conf.Str("redis", "key") + ":" + name + ":" + fmt.Sprintf("%v",qType)
+	typeStr, _ := dns.TypeToString[qType]
+	key := conf.Str("redis", "key") + ":" + name + ":" + typeStr
+	key = strings.ToLower(key)
+	fmt.Println(key)
 	return redisConn.Get(key).Result()
 }
 
