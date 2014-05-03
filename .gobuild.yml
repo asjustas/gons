@@ -1,0 +1,6 @@
+filesets:
+    includes:
+        - static
+        - LICENSE
+        - README.md
+        - config.ini
