@@ -1,4 +1,6 @@
 ## GoNS
+[![Gobuild Download](http://gobuild.io/badge/github.com/asjustas/gons/download.png)](http://gobuild.io/github.com/asjustas/gons)
+
 GoNS is experimental name server in golang.
 
 ## Install from binary
