@@ -17,6 +17,8 @@ import (
 	"github.com/vmihailenco/redis/v2"
 	"encoding/json"
 	"strings"
+	"github.com/ant0ine/go-json-rest/rest"
+    "net/http"
 )
 
 var (
@@ -24,6 +26,9 @@ var (
 	confErr error
 	redisConn *redis.Client
 )
+
+type Api struct {
+}
 
 type DnsRecord struct {
 	Name string `json:"name"`
@@ -33,10 +38,11 @@ type DnsRecord struct {
 	Mx string `json:"mx"`
 	Txt string `json:"Txt"`
 	Preference uint16 `json:"preference"`
+	Id int64 `json:"id"`
 }
 
 type DnsRecordsCollection struct {
-	Pool map[string]DnsRecord
+	Pool []*DnsRecord
 }
 
 func (mc *DnsRecordsCollection) FromJson(jsonStr string) error {
@@ -46,19 +52,48 @@ func (mc *DnsRecordsCollection) FromJson(jsonStr string) error {
 }
 
 func serve(net string) {
-	err := dns.ListenAndServe(":53", net, nil)
+	err := dns.ListenAndServe(conf.Str("core", "listen"), net, nil)
 	if err != nil {
 		log.Critical(fmt.Sprintf("Failed to set " + net + " listener %s\n", err.Error()))
 		os.Exit(1)
 	}
 }
 
-func getRecord(name string, qType uint16) (string, error){
+func getRecord(name string, qType uint16) ([]*DnsRecord, error){
 	typeStr, _ := dns.TypeToString[qType]
-	key := conf.Str("redis", "key") + ":" + name + ":" + typeStr
+
+	lookupKey := conf.Str("redis", "key") + ":lookup:" + name + ":" + typeStr
+    lookupKey = strings.ToLower(lookupKey)
+
+    ids, err := redisConn.LRange(lookupKey, 0, -1).Result()
+
+    if err != nil {
+    	log.Error(err)
+    }
+
+    records := []*DnsRecord{}
+    
+    for _, id := range ids {
+    	key := conf.Str("redis", "key") + ":records:" + id
+    	jsonStr, err := redisConn.Get(key).Result()
+
+    	if err != nil {
+
+		} else {
+			record := &DnsRecord{}
+			if err := json.Unmarshal([]byte(jsonStr), &record); err != nil {
+        		panic(err)
+    		}
+
+    		records = append(records, record)	
+		}
+    }
+
+    return records, nil
+	/*key := conf.Str("redis", "key") + ":" + name + ":" + typeStr
 	key = strings.ToLower(key)
 	fmt.Println(key)
-	return redisConn.Get(key).Result()
+	return redisConn.Get(key).Result()*/
 }
 
 func setAnswer(w dns.ResponseWriter, r *dns.Msg, data []dns.RR) {
@@ -70,37 +105,24 @@ func setAnswer(w dns.ResponseWriter, r *dns.Msg, data []dns.RR) {
 }
 
 func handleZone(w dns.ResponseWriter, r *dns.Msg) {
-	json, err := getRecord(r.Question[0].Name, r.Question[0].Qtype)
-	records := new(DnsRecordsCollection)
+	records, err := getRecord(r.Question[0].Name, r.Question[0].Qtype)
 
 	if err != nil {
-		ping := redisConn.Ping()
-		err := ping.Err() 
+		// no connection to redis
+		m := new(dns.Msg)
+		m.Authoritative = true
+		m.SetRcode(r, dns.RcodeServerFailure)
+		w.WriteMsg(m)
 
-		if err != nil {
-			// no connection to redis
-			m := new(dns.Msg)
-			m.Authoritative = true
-			m.SetRcode(r, dns.RcodeServerFailure)
-			w.WriteMsg(m)
-
-			log.Error(err)
-
-			return
-		}
-	} else {
-		err = records.FromJson(json)
-
-		if err != nil {
-			fmt.Println(err)
-		}
+		log.Error(err)
+		return
 	}
 
 	var answer []dns.RR
 
 	switch r.Question[0].Qtype {
 	case dns.TypeA:
-		for _, rec := range records.Pool {
+		for _, rec := range records {
 			record := new(dns.A)
 			record.Hdr = dns.RR_Header{Name: rec.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: rec.Ttl}
 			record.A = net.ParseIP(rec.A)
@@ -111,7 +133,7 @@ func handleZone(w dns.ResponseWriter, r *dns.Msg) {
 		setAnswer(w, r, answer)
 
 	case dns.TypeNS:
-		for _, rec := range records.Pool {
+		for _, rec := range records {
 			record := new(dns.NS)
 			record.Hdr = dns.RR_Header{Name: rec.Name, Rrtype: dns.TypeNS, Class: dns.ClassINET, Ttl: rec.Ttl}
 			record.Ns = rec.Ns
@@ -122,7 +144,7 @@ func handleZone(w dns.ResponseWriter, r *dns.Msg) {
 		setAnswer(w, r, answer)
 
 	case dns.TypeMX:
-		for _, rec := range records.Pool {
+		for _, rec := range records {
 			record := new(dns.MX)
 			record.Hdr = dns.RR_Header{Name: rec.Name, Rrtype: dns.TypeMX, Class: dns.ClassINET, Ttl: rec.Ttl}
 			record.Preference = rec.Preference
@@ -134,7 +156,7 @@ func handleZone(w dns.ResponseWriter, r *dns.Msg) {
 		setAnswer(w, r, answer)
 
 	case dns.TypeTXT:
-		for _, rec := range records.Pool {
+		for _, rec := range records {
 			record := new(dns.TXT)
 			record.Hdr = dns.RR_Header{Name: rec.Name, Rrtype: dns.TypeTXT, Class: dns.ClassINET, Ttl: rec.Ttl}
 			record.Txt = []string{rec.Txt}
@@ -197,6 +219,34 @@ func main() {
 
 	go serve("tcp")
 	go serve("udp")
+
+	go func () {
+		api := Api{}
+
+		handler := rest.ResourceHandler{
+	        PreRoutingMiddlewares: []rest.Middleware{
+	            &rest.AuthBasicMiddleware{
+	                Realm: "GoNS api",
+	                Authenticator: func(userId string, password string) bool {
+	                    if userId == conf.Str("api", "username") && password == conf.Str("api", "password") {
+	                        return true
+	                    }
+	                    return false
+	                },
+	            },
+	        },
+	    }
+
+	    handler.SetRoutes(
+        	/*rest.RouteObjectMethod("GET", "/records", &api, "GetAllRecords"),*/
+        	rest.RouteObjectMethod("POST", "/records", &api, "CreateRecord"),
+        	/*rest.RouteObjectMethod("GET", "/records/:id", &api, "GetRecord"),
+        	rest.RouteObjectMethod("PUT", "/records/:id", &api, "PutRecord"),
+        	rest.RouteObjectMethod("DELETE", "/records/:id", &api, "DeleteRecord"),*/
+    	)
+
+	    http.ListenAndServe(conf.Str("api", "listen"), &handler)
+	}()
 
 	sig := make(chan os.Signal)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
