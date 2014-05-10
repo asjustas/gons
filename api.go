@@ -19,7 +19,7 @@ type ApiDnsRecord struct {
     Preference uint16
 }
 
-func (a *Api) CreateRecord(w rest.ResponseWriter, r *rest.Request) {
+func (api *Api) CreateRecord(w rest.ResponseWriter, r *rest.Request) {
     record := ApiDnsRecord{}
     err := r.DecodeJsonPayload(&record)
 
@@ -71,4 +71,6 @@ func (a *Api) CreateRecord(w rest.ResponseWriter, r *rest.Request) {
 
     redisRec.Id = idInt
     w.WriteJson(&redisRec)
+
+    api.dnsCore.loadRecords()
 }

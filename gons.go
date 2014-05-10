@@ -30,6 +30,11 @@ var (
 )
 
 type Api struct {
+	dnsCore *DnsCore
+}
+
+type DnsCore struct {
+	cache Cache
 }
 
 type DnsRecord struct {
@@ -41,10 +46,6 @@ type DnsRecord struct {
 	Txt string `json:"Txt"`
 	Preference uint16 `json:"preference"`
 	Id int64 `json:"id"`
-}
-
-type DnsCore struct {
-	cache Cache
 }
 
 func substr(s string,pos,length int) string{
@@ -64,7 +65,9 @@ func serve(net string) {
 	}
 }
 
-func (core *DnsCore) loadRecords() {	
+func (core *DnsCore) loadRecords() {
+	core.cache.Reset()
+
 	_, keys, err := redisConn.Scan(0,  conf.Str("redis", "key") + ":lookup:*", 0).Result()
 
 	if err != nil {
@@ -230,9 +233,11 @@ func main() {
 	go serve("tcp")
 	go serve("udp")
 
-	go func () {
-		api := Api{}
+	api := Api {
+		dnsCore: dnsCore,
+	}
 
+	go func () {
 		handler := rest.ResourceHandler{
 	        PreRoutingMiddlewares: []rest.Middleware{
 	            &rest.AuthBasicMiddleware{
