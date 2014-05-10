@@ -1,5 +1,7 @@
 /*
 https://github.com/ant0ine/go-json-rest
+http://talks.golang.org/2013/oscon-dl.slide#47
+https://github.com/feiyang21687/golang/blob/160794ad61e214aff029eb84a86a18061b7144b0/groupcached/groupcached.go
  */
 
 package main
@@ -41,14 +43,17 @@ type DnsRecord struct {
 	Id int64 `json:"id"`
 }
 
-type DnsRecordsCollection struct {
-	Pool []*DnsRecord
+type DnsCore struct {
+	cache Cache
 }
 
-func (mc *DnsRecordsCollection) FromJson(jsonStr string) error {
-	var data = &mc.Pool
-	b := []byte(jsonStr)
-	return json.Unmarshal(b, data)
+func substr(s string,pos,length int) string{
+    runes:=[]rune(s)
+    l := pos+length
+    if l > len(runes) {
+        l = len(runes)
+    }
+    return string(runes[pos:l])
 }
 
 func serve(net string) {
@@ -59,44 +64,56 @@ func serve(net string) {
 	}
 }
 
-func getRecord(name string, qType uint16) ([]*DnsRecord, error){
-	typeStr, _ := dns.TypeToString[qType]
+func (core *DnsCore) loadRecords() {	
+	_, keys, err := redisConn.Scan(0,  conf.Str("redis", "key") + ":lookup:*", 0).Result()
 
-	lookupKey := conf.Str("redis", "key") + ":lookup:" + name + ":" + typeStr
-    lookupKey = strings.ToLower(lookupKey)
+	if err != nil {
+		log.Error(err)
+		return
+	}
 
-    ids, err := redisConn.LRange(lookupKey, 0, -1).Result()
+	for _, key := range keys {
+		ids, err := redisConn.LRange(key, 0, -1).Result()
 
-    if err != nil {
-    	log.Error(err)
-    }
+	    if err != nil {
+	    	log.Error(err)
+	    }
 
-    records := []*DnsRecord{}
-    
-    for _, id := range ids {
-    	key := conf.Str("redis", "key") + ":records:" + id
-    	jsonStr, err := redisConn.Get(key).Result()
+	    records := []DnsRecord{}
 
-    	if err != nil {
+	    for _, id := range ids {
+    		key := conf.Str("redis", "key") + ":records:" + id
+    		jsonStr, err := redisConn.Get(key).Result()
 
-		} else {
-			record := &DnsRecord{}
-			if err := json.Unmarshal([]byte(jsonStr), &record); err != nil {
-        		panic(err)
-    		}
+    		if err != nil {
+	    		log.Error(err)
+			} else {
+				record := DnsRecord{}
+				if err := json.Unmarshal([]byte(jsonStr), &record); err != nil {
+	        		panic(err)
+	    		}
 
-    		records = append(records, record)	
+	    		records = append(records, record)	
+			}
 		}
-    }
 
-    return records, nil
-	/*key := conf.Str("redis", "key") + ":" + name + ":" + typeStr
-	key = strings.ToLower(key)
-	fmt.Println(key)
-	return redisConn.Get(key).Result()*/
+		prefixLen := len(conf.Str("redis", "key") + ":lookup:")
+		saveKey := substr(key, prefixLen, len(key) - prefixLen)
+		core.cache.Set(saveKey, records)
+	}
 }
 
-func setAnswer(w dns.ResponseWriter, r *dns.Msg, data []dns.RR) {
+func (core *DnsCore) getRecords(name string, qType uint16) []DnsRecord {
+	typeStr, _ := dns.TypeToString[qType]
+
+	lookupKey := name + ":" + typeStr
+    lookupKey = strings.ToLower(lookupKey)
+    records, _ := core.cache.Get(lookupKey)
+
+    return records
+}
+
+func (core *DnsCore) setAnswer(w dns.ResponseWriter, r *dns.Msg, data []dns.RR) {
 	m := new(dns.Msg)
 	m.SetReply(r)
 	m.Authoritative = true
@@ -104,19 +121,8 @@ func setAnswer(w dns.ResponseWriter, r *dns.Msg, data []dns.RR) {
 	w.WriteMsg(m)
 }
 
-func handleZone(w dns.ResponseWriter, r *dns.Msg) {
-	records, err := getRecord(r.Question[0].Name, r.Question[0].Qtype)
-
-	if err != nil {
-		// no connection to redis
-		m := new(dns.Msg)
-		m.Authoritative = true
-		m.SetRcode(r, dns.RcodeServerFailure)
-		w.WriteMsg(m)
-
-		log.Error(err)
-		return
-	}
+func (core *DnsCore) handleZone(w dns.ResponseWriter, r *dns.Msg) {
+	records := core.getRecords(r.Question[0].Name, r.Question[0].Qtype)
 
 	var answer []dns.RR
 
@@ -130,7 +136,7 @@ func handleZone(w dns.ResponseWriter, r *dns.Msg) {
 			answer = append(answer, record)
 		}
 
-		setAnswer(w, r, answer)
+		core.setAnswer(w, r, answer)
 
 	case dns.TypeNS:
 		for _, rec := range records {
@@ -141,7 +147,7 @@ func handleZone(w dns.ResponseWriter, r *dns.Msg) {
 			answer = append(answer, record)
 		}
 
-		setAnswer(w, r, answer)
+		core.setAnswer(w, r, answer)
 
 	case dns.TypeMX:
 		for _, rec := range records {
@@ -152,8 +158,8 @@ func handleZone(w dns.ResponseWriter, r *dns.Msg) {
 
 			answer = append(answer, record)
 		}
-		
-		setAnswer(w, r, answer)
+
+		core.setAnswer(w, r, answer)
 
 	case dns.TypeTXT:
 		for _, rec := range records {
@@ -164,7 +170,7 @@ func handleZone(w dns.ResponseWriter, r *dns.Msg) {
 			answer = append(answer, record)
 		}
 
-		setAnswer(w, r, answer)
+		core.setAnswer(w, r, answer)
 
 	default:
 		m := new(dns.Msg)
@@ -211,7 +217,11 @@ func main() {
 
 	defer redisConn.Close()
 
-	dns.HandleFunc(".", handleZone)
+	dnsCore := new(DnsCore)
+	dnsCore.cache = Cache{store: make(map[string][]DnsRecord)}
+	dnsCore.loadRecords()
+
+	dns.HandleFunc(".", dnsCore.handleZone)
 	/*dns.HandleFunc("authors.bind.", dns.HandleAuthors)
 	dns.HandleFunc("authors.server.", dns.HandleAuthors)
 	dns.HandleFunc("version.bind.", dns.HandleVersion)
