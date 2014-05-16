@@ -6,17 +6,18 @@ import (
     "strings"
     "encoding/json"
     "strconv"
+    log "github.com/cihub/seelog"
 )
 
 type ApiDnsRecord struct {
-    Type string
-    Name string
-    Ttl uint32
-    A string
-    Ns string
-    Mx string
-    Txt string
-    Preference uint16
+    Type string `json:"type"`
+    Name string `json:"name"`
+    Ttl uint32 `json:"ttl"`
+    A string `json:"a"`
+    Ns string `json:"ns"`
+    Mx string `json:"mx"`
+    Txt string `json:"txt"`
+    Preference uint16 `json:"preference"`
 }
 
 func (api *Api) CreateRecord(w rest.ResponseWriter, r *rest.Request) {
@@ -28,16 +29,6 @@ func (api *Api) CreateRecord(w rest.ResponseWriter, r *rest.Request) {
         return
     }
 
-    redisRec := &DnsRecord{
-        Name: record.Name,
-        Ttl: record.Ttl,
-        A: record.A,
-        Ns: record.Ns,
-        Mx: record.Mx,
-        Txt: record.Txt,
-        Preference: record.Preference,
-    }
-
     idInt, err := redisConn.Incr(conf.Str("redis", "key") + ":counters:ids").Result()
     if err != nil {
         rest.Error(w, "a"+err.Error(), http.StatusInternalServerError)
@@ -45,6 +36,18 @@ func (api *Api) CreateRecord(w rest.ResponseWriter, r *rest.Request) {
     }
 
     id := strconv.FormatInt(idInt, 10)
+
+    redisRec := &DnsRecord{
+        Id: idInt,
+        Type: record.Type,
+        Name: record.Name,
+        A: record.A,
+        Ns: record.Ns,
+        Mx: record.Mx,
+        Txt: record.Txt,
+        Preference: record.Preference,
+        Ttl: record.Ttl,
+    }
 
     key := conf.Str("redis", "key") + ":records:" + id
     key = strings.ToLower(key)
@@ -73,4 +76,41 @@ func (api *Api) CreateRecord(w rest.ResponseWriter, r *rest.Request) {
     w.WriteJson(&redisRec)
 
     api.dnsCore.loadRecords()
+}
+
+func (api *Api) GetAllRecords(w rest.ResponseWriter, r *rest.Request) {
+    _, keys, err := redisConn.Scan(0,  conf.Str("redis", "key") + ":lookup:*", 0).Result()
+
+    if err != nil {
+        log.Error(err)
+        return
+    }
+
+    records := []DnsRecord{}
+
+    for _, key := range keys {
+        ids, err := redisConn.LRange(key, 0, -1).Result()
+
+        if err != nil {
+            log.Error(err)
+        }
+
+        for _, id := range ids {
+            key := conf.Str("redis", "key") + ":records:" + id
+            jsonStr, err := redisConn.Get(key).Result()
+
+            if err != nil {
+                log.Error(err)
+            } else {
+                record := DnsRecord{}
+                if err := json.Unmarshal([]byte(jsonStr), &record); err != nil {
+                    panic(err)
+                }
+
+                records = append(records, record)   
+            }
+        }
+    }
+
+    w.WriteJson(&records)
 }

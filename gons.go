@@ -38,14 +38,15 @@ type DnsCore struct {
 }
 
 type DnsRecord struct {
+	Id int64 `json:"id"`
+	Type string `json:"type"`
 	Name string `json:"name"`
-	Ttl uint32 `json:"ttl"`
 	A string `json:"a"`
 	Ns string `json:"ns"`
 	Mx string `json:"mx"`
-	Txt string `json:"Txt"`
+	Txt string `json:"txt"`
 	Preference uint16 `json:"preference"`
-	Id int64 `json:"id"`
+	Ttl uint32 `json:"ttl"`
 }
 
 func substr(s string,pos,length int) string{
@@ -239,6 +240,7 @@ func main() {
 
 	go func () {
 		handler := rest.ResourceHandler{
+			EnableGzip: true,
 	        PreRoutingMiddlewares: []rest.Middleware{
 	            &rest.AuthBasicMiddleware{
 	                Realm: "GoNS api",
@@ -253,11 +255,11 @@ func main() {
 	    }
 
 	    handler.SetRoutes(
-        	/*rest.RouteObjectMethod("GET", "/records", &api, "GetAllRecords"),*/
-        	rest.RouteObjectMethod("POST", "/records", &api, "CreateRecord"),
-        	/*rest.RouteObjectMethod("GET", "/records/:id", &api, "GetRecord"),
-        	rest.RouteObjectMethod("PUT", "/records/:id", &api, "PutRecord"),
-        	rest.RouteObjectMethod("DELETE", "/records/:id", &api, "DeleteRecord"),*/
+        	rest.RouteObjectMethod("GET", "/records.json", &api, "GetAllRecords"),
+        	rest.RouteObjectMethod("POST", "/records.json", &api, "CreateRecord"),
+        	/*rest.RouteObjectMethod("GET", "/records/:id.json", &api, "GetRecord"),
+        	rest.RouteObjectMethod("PUT", "/records/:id.json", &api, "PutRecord"),
+        	rest.RouteObjectMethod("DELETE", "/records/:id.json", &api, "DeleteRecord"),*/
     	)
 
 	    http.ListenAndServe(conf.Str("api", "listen"), &handler)
