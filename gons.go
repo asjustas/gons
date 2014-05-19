@@ -42,9 +42,11 @@ type DnsRecord struct {
 	Type string `json:"type"`
 	Name string `json:"name"`
 	A string `json:"a"`
+	AAAA string `json:"aaaa"`
 	Ns string `json:"ns"`
 	Mx string `json:"mx"`
 	Txt string `json:"txt"`
+	Cname string `json:"cname"`
 	Preference uint16 `json:"preference"`
 	Ttl uint32 `json:"ttl"`
 }
@@ -136,6 +138,28 @@ func (core *DnsCore) handleZone(w dns.ResponseWriter, r *dns.Msg) {
 			record := new(dns.A)
 			record.Hdr = dns.RR_Header{Name: rec.Name, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: rec.Ttl}
 			record.A = net.ParseIP(rec.A)
+
+			answer = append(answer, record)
+		}
+
+		core.setAnswer(w, r, answer)
+
+	case dns.TypeAAAA:
+		for _, rec := range records {
+			record := new(dns.AAAA)
+			record.Hdr = dns.RR_Header{Name: rec.Name, Rrtype: dns.TypeAAAA, Class: dns.ClassINET, Ttl: rec.Ttl}
+			record.AAAA = net.ParseIP(rec.AAAA)
+
+			answer = append(answer, record)
+		}
+
+		core.setAnswer(w, r, answer)
+
+	case dns.TypeCNAME:
+		for _, rec := range records {
+			record := new(dns.CNAME)
+			record.Hdr = dns.RR_Header{Name: rec.Name, Rrtype: dns.TypeCNAME, Class: dns.ClassINET, Ttl: rec.Ttl}
+			record.Target = rec.Cname
 
 			answer = append(answer, record)
 		}

@@ -14,9 +14,11 @@ type ApiDnsRecord struct {
     Name string `json:"name"`
     Ttl uint32 `json:"ttl"`
     A string `json:"a"`
+    AAAA string `json:"aaaa"`
     Ns string `json:"ns"`
     Mx string `json:"mx"`
     Txt string `json:"txt"`
+    Cname string `json:"cname"`
     Preference uint16 `json:"preference"`
 }
 
