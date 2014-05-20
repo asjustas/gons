@@ -34,17 +34,17 @@ Retrieve the particular record by id
 
 ```json
 {
-    id: 6,
-    type: "a",
-    name: "ui8.lt.",
-    a: "8.8.8.8",
-    aaaa: "",
-    ns: "",
-    mx: "",
-    txt: "",
-    cname: "",
-    preference: 0,
-    ttl: 3600
+    "id": 6,
+    "type": "a",
+    "name": "ui8.lt.",
+    "a": "8.8.8.8",
+    "aaaa": "",
+    "ns": "",
+    "mx": "",
+    "txt": "",
+    "cname": "",
+    "preference": 0,
+    "ttl": 3600
 }
 ```
 
@@ -56,43 +56,43 @@ Retrieve the existing records
 ```json
 [
     {
-        id: 7,
-        type: "a",
-        name: "ui8.lt.",
-        a: "8.8.8.8",
-        aaaa: "",
-        ns: "",
-        mx: "",
-        txt: "",
-        cname: "",
-        preference: 0,
-        ttl: 3600
+        "id": 7,
+        "type": "a",
+        "name": "ui8.lt.",
+        "a": "8.8.8.8",
+        "aaaa": "",
+        "ns": "",
+        "mx": "",
+        "txt": "",
+        "cname": "",
+        "preference": 0,
+        "ttl": 3600
     },
     {
-        id: 8,
-        type: "a",
-        name: "ns2.ui8.lt.",
-        a: "127.0.0.2",
-        aaaa: "",
-        ns: "",
-        mx: "",
-        txt: "",
-        cname: "",
-        preference: 0,
-        ttl: 3600
+        "id": 8,
+        "type": "a",
+        "name": "ns2.ui8.lt.",
+        "a": "127.0.0.2",
+        "aaaa": "",
+        "ns": "",
+        "mx": "",
+        "txt": "",
+        "cname": "",
+        "preference": 0,
+        "ttl": 3600
     },
     {
-        id: 9,
-        type: "a",
-        name: "ns1.ui8.lt.",
-        a: "127.0.0.1",
-        aaaa: "",
-        ns: "",
-        mx: "",
-        txt: "",
-        cname: "",
-        preference: 0,
-        ttl: 3600
+        "id": 9,
+        "type": "a",
+        "name": "ns1.ui8.lt.",
+        "a": "127.0.0.1",
+        "aaaa": "",
+        "ns": "",
+        "mx": "",
+        "txt": "",
+        "cname": "",
+        "preference": 0,
+        "ttl": 3600
     }
 ]
 ```
