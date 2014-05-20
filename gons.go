@@ -71,7 +71,7 @@ func serve(net string) {
 func (core *DnsCore) loadRecords() {
 	core.cache.Reset()
 
-	_, keys, err := redisConn.Scan(0,  conf.Str("redis", "key") + ":lookup:*", 0).Result()
+	keys, err := redisConn.Keys(conf.Str("redis", "key") + ":lookup:*").Result()
 
 	if err != nil {
 		log.Error(err)
@@ -281,8 +281,8 @@ func main() {
 	    handler.SetRoutes(
         	rest.RouteObjectMethod("GET", "/records.json", &api, "GetAllRecords"),
         	rest.RouteObjectMethod("POST", "/records.json", &api, "CreateRecord"),
-        	/*rest.RouteObjectMethod("GET", "/records/:id.json", &api, "GetRecord"),
-        	rest.RouteObjectMethod("PUT", "/records/:id.json", &api, "PutRecord"),
+        	rest.RouteObjectMethod("GET", "/records/:id.json", &api, "GetRecord"),
+        	/*rest.RouteObjectMethod("PUT", "/records/:id.json", &api, "PutRecord"),
         	rest.RouteObjectMethod("DELETE", "/records/:id.json", &api, "DeleteRecord"),*/
     	)
 

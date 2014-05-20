@@ -80,8 +80,26 @@ func (api *Api) CreateRecord(w rest.ResponseWriter, r *rest.Request) {
     api.dnsCore.loadRecords()
 }
 
+func (api *Api) GetRecord(w rest.ResponseWriter, r *rest.Request) {
+    id := r.PathParam("id")
+
+    key := conf.Str("redis", "key") + ":records:" + id
+    jsonStr, err := redisConn.Get(key).Result()
+
+    if err != nil {
+        log.Error(err)
+    } else {
+        record := DnsRecord{}
+        if err := json.Unmarshal([]byte(jsonStr), &record); err != nil {
+            panic(err)
+        }
+
+        w.WriteJson(&record)  
+    }
+}
+
 func (api *Api) GetAllRecords(w rest.ResponseWriter, r *rest.Request) {
-    _, keys, err := redisConn.Scan(0,  conf.Str("redis", "key") + ":lookup:*", 0).Result()
+    keys, err := redisConn.Keys(conf.Str("redis", "key") + ":lookup:*").Result()
 
     if err != nil {
         log.Error(err)
