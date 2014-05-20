@@ -286,7 +286,8 @@ func main() {
         	rest.RouteObjectMethod("DELETE", "/records/:id.json", &api, "DeleteRecord"),*/
     	)
 
-	    http.ListenAndServe(conf.Str("api", "listen"), &handler)
+	    http.Handle("/v1/", http.StripPrefix("/v1", &handler))
+	    http.ListenAndServe(conf.Str("api", "listen"), nil)
 	}()
 
 	sig := make(chan os.Signal)
