@@ -33,7 +33,7 @@ func (api *Api) CreateRecord(w rest.ResponseWriter, r *rest.Request) {
 
     idInt, err := redisConn.Incr(conf.Str("redis", "key") + ":counters:ids").Result()
     if err != nil {
-        rest.Error(w, "a"+err.Error(), http.StatusInternalServerError)
+        rest.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
 
@@ -44,9 +44,11 @@ func (api *Api) CreateRecord(w rest.ResponseWriter, r *rest.Request) {
         Type: record.Type,
         Name: record.Name,
         A: record.A,
+        AAAA: record.AAAA,
         Ns: record.Ns,
         Mx: record.Mx,
         Txt: record.Txt,
+        Cname: record.Cname,
         Preference: record.Preference,
         Ttl: record.Ttl,
     }
