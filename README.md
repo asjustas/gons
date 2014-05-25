@@ -9,6 +9,12 @@ You're free to download up-to-date binary from [gobuild.io](http://gobuild.io/do
 ## HTTP API
 Best way to configure GoNS server
 
+### Authentication
+You must use HTTP Basic authentication. Username and password is set in configuration file.
+
+### Handling errors
+If GoNS is having trouble, you might see a 5xx error. 500 means that the app is entirely down, but you might also see ```502 Bad Gateway```, ```503 Service Unavailable```, or ```504 Gateway Timeout```. It's your responsibility in all of these cases to retry your request later.
+
 ### Create record
 ```POST /v1/records.json```
 
@@ -26,6 +32,18 @@ Add dns record
 | txt | Record txt value |
 | cname | Record cname value |
 | preference | Record prefecence value |
+
+```json
+{
+    "type": "cname",
+    "name": "git.u3.lt",
+    "ttl": 3600,
+    "cname": "bitbucket.org."
+    ...
+}
+```
+
+This will return ```201 Created```, with the current JSON representation of the record if the creation was a success.
 
 ### Get record
 ```GET /v1/records/<id>.json```
@@ -73,19 +91,6 @@ Retrieve the existing records
         "type": "a",
         "name": "ns2.ui8.lt.",
         "a": "127.0.0.2",
-        "aaaa": "",
-        "ns": "",
-        "mx": "",
-        "txt": "",
-        "cname": "",
-        "preference": 0,
-        "ttl": 3600
-    },
-    {
-        "id": 9,
-        "type": "a",
-        "name": "ns1.ui8.lt.",
-        "a": "127.0.0.1",
         "aaaa": "",
         "ns": "",
         "mx": "",
