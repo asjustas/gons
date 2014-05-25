@@ -33,7 +33,7 @@ func (api *Api) CreateRecord(w rest.ResponseWriter, r *rest.Request) {
 
     idInt, err := redisConn.Incr(conf.Str("redis", "key") + ":counters:ids").Result()
     if err != nil {
-        rest.Error(w, err.Error(), http.StatusInternalServerError)
+        rest.Error(w, err.Error(), http.StatusServiceUnavailable)
         return
     }
 
@@ -58,13 +58,13 @@ func (api *Api) CreateRecord(w rest.ResponseWriter, r *rest.Request) {
 
     redisRecJson, err := json.Marshal(redisRec)
     if err != nil {
-        rest.Error(w, err.Error(), http.StatusInternalServerError)
+        rest.Error(w, err.Error(), http.StatusServiceUnavailable)
         return
     } 
 
     err = redisConn.Set(key, string(redisRecJson)).Err()
     if err != nil {
-        rest.Error(w, err.Error(), http.StatusInternalServerError)
+        rest.Error(w, err.Error(), http.StatusServiceUnavailable)
         return
     }
 
@@ -72,11 +72,13 @@ func (api *Api) CreateRecord(w rest.ResponseWriter, r *rest.Request) {
     lookupKey = strings.ToLower(lookupKey)
     _, err = redisConn.RPush(lookupKey, id).Result()
     if err != nil {
-        rest.Error(w, err.Error(), http.StatusInternalServerError)
+        rest.Error(w, err.Error(), http.StatusServiceUnavailable)
         return
     }
 
     redisRec.Id = idInt
+
+    w.WriteHeader(http.StatusCreated)
     w.WriteJson(&redisRec)
 
     api.dnsCore.loadRecords()
@@ -90,10 +92,14 @@ func (api *Api) GetRecord(w rest.ResponseWriter, r *rest.Request) {
 
     if err != nil {
         log.Error(err)
+        rest.Error(w, err.Error(), http.StatusInternalServerError)
+        return
     } else {
         record := DnsRecord{}
         if err := json.Unmarshal([]byte(jsonStr), &record); err != nil {
-            panic(err)
+            log.Error(err)
+            rest.Error(w, err.Error(), http.StatusInternalServerError)
+            return
         }
 
         w.WriteJson(&record)  
@@ -105,6 +111,7 @@ func (api *Api) GetAllRecords(w rest.ResponseWriter, r *rest.Request) {
 
     if err != nil {
         log.Error(err)
+        rest.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
 
@@ -115,6 +122,8 @@ func (api *Api) GetAllRecords(w rest.ResponseWriter, r *rest.Request) {
 
         if err != nil {
             log.Error(err)
+            rest.Error(w, err.Error(), http.StatusInternalServerError)
+            return
         }
 
         for _, id := range ids {
@@ -123,10 +132,14 @@ func (api *Api) GetAllRecords(w rest.ResponseWriter, r *rest.Request) {
 
             if err != nil {
                 log.Error(err)
+                rest.Error(w, err.Error(), http.StatusInternalServerError)
+                return
             } else {
                 record := DnsRecord{}
                 if err := json.Unmarshal([]byte(jsonStr), &record); err != nil {
-                    panic(err)
+                    log.Error(err)
+                    rest.Error(w, err.Error(), http.StatusInternalServerError)
+                    return
                 }
 
                 records = append(records, record)   
