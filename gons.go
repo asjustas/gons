@@ -2,30 +2,30 @@
 https://github.com/ant0ine/go-json-rest
 http://talks.golang.org/2013/oscon-dl.slide#47
 https://github.com/feiyang21687/golang/blob/160794ad61e214aff029eb84a86a18061b7144b0/groupcached/groupcached.go
- */
+*/
 
 package main
 
 import (
-	"runtime"
+	"encoding/json"
+	"fmt"
+	"github.com/ant0ine/go-json-rest/rest"
+	"github.com/asjustas/goini"
 	log "github.com/cihub/seelog"
 	"github.com/miekg/dns"
-	"os/signal"
-	"syscall"
-	"github.com/asjustas/goini"
-	"os"
-	"fmt"
-	"net"
 	"github.com/vmihailenco/redis/v2"
-	"encoding/json"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"runtime"
 	"strings"
-	"github.com/ant0ine/go-json-rest/rest"
-    "net/http"
+	"syscall"
 )
 
 var (
-	conf *goini.Ini 
-	confErr error
+	conf      *goini.Ini
+	confErr   error
 	redisConn *redis.Client
 )
 
@@ -38,34 +38,42 @@ type DnsCore struct {
 }
 
 type DnsRecord struct {
-	Id int64 `json:"id"`
-	Type string `json:"type"`
-	Name string `json:"name"`
-	A string `json:"a"`
-	AAAA string `json:"aaaa"`
-	Ns string `json:"ns"`
-	Mx string `json:"mx"`
-	Txt string `json:"txt"`
-	Cname string `json:"cname"`
+	Id         int64  `json:"id"`
+	Type       string `json:"type"`
+	Name       string `json:"name"`
+	A          string `json:"a"`
+	AAAA       string `json:"aaaa"`
+	Ns         string `json:"ns"`
+	Mx         string `json:"mx"`
+	Txt        string `json:"txt"`
+	Cname      string `json:"cname"`
 	Preference uint16 `json:"preference"`
-	Ttl uint32 `json:"ttl"`
+	Ttl        uint32 `json:"ttl"`
+	Refresh    uint32 `json:"refresh"`
+	Retry      uint32 `json:"retry"`
+	Expire     uint32 `json:"expire"`
+	Minttl     uint32 `json:"minttl"`
 }
 
-func substr(s string,pos,length int) string{
-    runes:=[]rune(s)
-    l := pos+length
-    if l > len(runes) {
-        l = len(runes)
-    }
-    return string(runes[pos:l])
+func substr(s string, pos, length int) string {
+	runes := []rune(s)
+	l := pos + length
+	if l > len(runes) {
+		l = len(runes)
+	}
+	return string(runes[pos:l])
 }
 
 func serve(net string) {
 	err := dns.ListenAndServe(conf.Str("core", "listen"), net, nil)
 	if err != nil {
-		log.Critical(fmt.Sprintf("Failed to set " + net + " listener %s\n", err.Error()))
+		log.Critical(fmt.Sprintf("Failed to set "+net+" listener %s\n", err.Error()))
 		os.Exit(1)
 	}
+}
+
+func (core *DnsCore) zoneSerial(zone string) uint32 {
+	return 2014042809
 }
 
 func (core *DnsCore) loadRecords() {
@@ -81,30 +89,30 @@ func (core *DnsCore) loadRecords() {
 	for _, key := range keys {
 		ids, err := redisConn.LRange(key, 0, -1).Result()
 
-	    if err != nil {
-	    	log.Error(err)
-	    }
+		if err != nil {
+			log.Error(err)
+		}
 
-	    records := []DnsRecord{}
+		records := []DnsRecord{}
 
-	    for _, id := range ids {
-    		key := conf.Str("redis", "key") + ":records:" + id
-    		jsonStr, err := redisConn.Get(key).Result()
+		for _, id := range ids {
+			key := conf.Str("redis", "key") + ":records:" + id
+			jsonStr, err := redisConn.Get(key).Result()
 
-    		if err != nil {
-	    		log.Error(err)
+			if err != nil {
+				log.Error(err)
 			} else {
 				record := DnsRecord{}
 				if err := json.Unmarshal([]byte(jsonStr), &record); err != nil {
-	        		panic(err)
-	    		}
+					panic(err)
+				}
 
-	    		records = append(records, record)	
+				records = append(records, record)
 			}
 		}
 
 		prefixLen := len(conf.Str("redis", "key") + ":lookup:")
-		saveKey := substr(key, prefixLen, len(key) - prefixLen)
+		saveKey := substr(key, prefixLen, len(key)-prefixLen)
 		core.cache.Set(saveKey, records)
 	}
 }
@@ -113,10 +121,10 @@ func (core *DnsCore) getRecords(name string, qType uint16) []DnsRecord {
 	typeStr, _ := dns.TypeToString[qType]
 
 	lookupKey := name + ":" + typeStr
-    lookupKey = strings.ToLower(lookupKey)
-    records, _ := core.cache.Get(lookupKey)
+	lookupKey = strings.ToLower(lookupKey)
+	records, _ := core.cache.Get(lookupKey)
 
-    return records
+	return records
 }
 
 func (core *DnsCore) setAnswer(w dns.ResponseWriter, r *dns.Msg, data []dns.RR) {
@@ -200,6 +208,24 @@ func (core *DnsCore) handleZone(w dns.ResponseWriter, r *dns.Msg) {
 
 		core.setAnswer(w, r, answer)
 
+	case dns.TypeSOA:
+		if len(records) >= 1 {
+			rec := records[0]
+			record := new(dns.SOA)
+			record.Hdr = dns.RR_Header{Name: rec.Name, Rrtype: dns.TypeSOA, Class: dns.ClassINET, Ttl: rec.Ttl}
+			record.Ns = rec.Ns
+			record.Mbox = conf.Str("core", "email")
+			record.Serial = core.zoneSerial(rec.Name)
+			record.Refresh = rec.Refresh
+			record.Retry = rec.Retry
+			record.Expire = rec.Expire
+			record.Minttl = rec.Minttl
+
+			answer = append(answer, record)
+		}
+
+		core.setAnswer(w, r, answer)
+
 	default:
 		m := new(dns.Msg)
 		m.Authoritative = true
@@ -218,8 +244,8 @@ func main() {
 
 	conf, confErr = goini.Load(confFile)
 	if confErr != nil {
-        panic(confErr)
-    }
+		panic(confErr)
+	}
 
 	seelog := `
     <seelog>
@@ -237,7 +263,7 @@ func main() {
 
 	log.Info("Server started")
 
-    redisConn = redis.NewTCPClient(&redis.Options{
+	redisConn = redis.NewTCPClient(&redis.Options{
 		Addr:     conf.Str("redis", "server"),
 		Password: "",
 		DB:       0,
@@ -258,36 +284,36 @@ func main() {
 	go serve("tcp")
 	go serve("udp")
 
-	api := Api {
+	api := Api{
 		dnsCore: dnsCore,
 	}
 
-	go func () {
+	go func() {
 		handler := rest.ResourceHandler{
 			EnableGzip: true,
-	        PreRoutingMiddlewares: []rest.Middleware{
-	            &rest.AuthBasicMiddleware{
-	                Realm: "GoNS api",
-	                Authenticator: func(userId string, password string) bool {
-	                    if userId == conf.Str("api", "username") && password == conf.Str("api", "password") {
-	                        return true
-	                    }
-	                    return false
-	                },
-	            },
-	        },
-	    }
+			PreRoutingMiddlewares: []rest.Middleware{
+				&rest.AuthBasicMiddleware{
+					Realm: "GoNS api",
+					Authenticator: func(userId string, password string) bool {
+						if userId == conf.Str("api", "username") && password == conf.Str("api", "password") {
+							return true
+						}
+						return false
+					},
+				},
+			},
+		}
 
-	    handler.SetRoutes(
-        	rest.RouteObjectMethod("GET", "/records.json", &api, "GetAllRecords"),
-        	rest.RouteObjectMethod("POST", "/records.json", &api, "CreateRecord"),
-        	rest.RouteObjectMethod("GET", "/records/:id.json", &api, "GetRecord"),
-        	/*rest.RouteObjectMethod("PUT", "/records/:id.json", &api, "PutRecord"),
-        	rest.RouteObjectMethod("DELETE", "/records/:id.json", &api, "DeleteRecord"),*/
-    	)
+		handler.SetRoutes(
+			rest.RouteObjectMethod("GET", "/records.json", &api, "GetAllRecords"),
+			rest.RouteObjectMethod("POST", "/records.json", &api, "CreateRecord"),
+			rest.RouteObjectMethod("GET", "/records/:id.json", &api, "GetRecord"),
+			/*rest.RouteObjectMethod("PUT", "/records/:id.json", &api, "PutRecord"),
+			rest.RouteObjectMethod("DELETE", "/records/:id.json", &api, "DeleteRecord"),*/
+		)
 
-	    http.Handle("/v1/", http.StripPrefix("/v1", &handler))
-	    http.ListenAndServe(conf.Str("api", "listen"), nil)
+		http.Handle("/v1/", http.StripPrefix("/v1", &handler))
+		http.ListenAndServe(conf.Str("api", "listen"), nil)
 	}()
 
 	sig := make(chan os.Signal)
